@@ -1,0 +1,56 @@
+// Define the region of interest (ROI) for Manali
+var roi = ee.Geometry.Point([77.1848, 32.2396]).buffer(10000);
+
+// Function to calculate Normalized Difference Snow Index (NDSI) and add it as a band to the image
+var addNDSIBand = function(image) {
+  var ndsi = image.normalizedDifference(['B3', 'B5']).rename('NDSI');
+  return image.addBands(ndsi);
+};
+
+// Load Landsat 5, 7, and 8 images, apply NDSI calculation, and filter by date and location
+var landsatCollection = ee.ImageCollection('LANDSAT/LT05/C01/T1_TOA')
+  .merge(ee.ImageCollection('LANDSAT/LE07/C01/T1_TOA'))
+  .merge(ee.ImageCollection('LANDSAT/LC08/C01/T1_TOA'))
+  .filterBounds(roi)
+  .map(addNDSIBand);
+
+// Function to mask out non-snow pixels based on NDSI threshold
+var maskSnow = function(image) {
+  var snowMask = image.select('NDSI').gt(0.4); // Adjust the threshold as needed
+  return image.updateMask(snowMask);
+};
+
+// Apply the snow mask to the image collection
+var snowCoverCollection = landsatCollection.map(maskSnow);
+
+// Function to calculate the percentage of snow cover in the ROI
+var calculateSnowCover = function(image) {
+  var snowCoverPercentage = image.select('NDSI').gt(0.4).reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: roi,
+    scale: 30
+  });
+  return image.set('snow_cover_percentage', snowCoverPercentage.get('NDSI'));
+};
+
+// Map over the snow-covered image collection to calculate snow cover percentage
+var snowCoverCollectionWithPercentage = snowCoverCollection.map(calculateSnowCover);
+
+// Print the resulting collection
+print(snowCoverCollectionWithPercentage);
+
+// Make a chart of snow cover percentage over time
+var chart = ui.Chart.image.seriesByRegion({
+  imageCollection: snowCoverCollectionWithPercentage,
+  band: 'NDSI',  // Fix the band name here
+  regions: roi,
+  reducer: ee.Reducer.mean(),
+  scale: 30
+}).setOptions({
+  title: 'Snow Cover Percentage Over Time',
+  vAxis: { title: 'Snow Cover Percentage' },
+  hAxis: { title: 'Year' }
+});
+
+// Display the chart
+print(chart);
